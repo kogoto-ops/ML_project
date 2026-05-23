@@ -1,18 +1,15 @@
-Required libraries and derictories for the project:
 pandas
 numpy
 plotly
-matplotlib.pyplot
+matplotlib
 seaborn
 os
 joblib
 time
 timeit
 pickle
+scikit-learn
+ydata
 giskard
-sklearn.model_selection - train_test_split, GridSearchCV
-sklearn.preprocessing - OrdinalEncoder, OneHotEncoder, StandardScaler
-sklearn.ensemble - RandomForestRegressor, GradientBoostingRegressor
-sklearn.linear_model - Ridge, Lasso
-sklearn.metrics - mean_absolute_error, mean_squared_error, r2_score
-scipy - stats
+scipy 
+bokeh
