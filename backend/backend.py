@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from schemas.RawSampleSchema import RawSampleSchema
+from schemas.Raw_sample_schema import RawSampleSchema
 from pipeline.preprocessor import CarPricePreprocessor
 
 # ---------- CONFIGURATION ----------
