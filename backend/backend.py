@@ -7,13 +7,13 @@ import uvicorn
 from fastapi import FastAPI, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 
-sys.path.append(os.path.dirname(os.path.abspath(backend/backend.py)))
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from schemas.RawSampleSchema import RawSampleSchema
 from pipeline.preprocessor import CarPricePreprocessor
 
 # ---------- CONFIGURATION ----------
-BASE_DIR = os.path.dirname(os.path.abspath(backend/backend.py))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "../models/best_model.joblib")
 
 # ---------- LOAD MODEL & PREPROCESSOR ----------
