@@ -3,7 +3,6 @@ numpy
 plotly
 matplotlib
 seaborn
-os
 joblib
 time
 timeit
