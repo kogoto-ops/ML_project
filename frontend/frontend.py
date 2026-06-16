@@ -3,9 +3,10 @@ import io
 import requests
 import pandas as pd
 import streamlit as st
+import os
 
 # Configuration
-BACKEND_URL = "http://localhost:8011"
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://backend:8011")
 
 st.set_page_config(
     page_title="Car Price Predictor",
