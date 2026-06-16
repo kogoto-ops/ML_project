@@ -1,0 +1,16 @@
+pandas
+numpy
+plotly
+matplotlib
+seaborn
+os
+joblib
+time
+timeit
+pickle
+scikit-learn
+ydata
+giskard
+scipy 
+bokeh
+requests 
