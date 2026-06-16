@@ -6,8 +6,14 @@ import joblib
 
 class CarPricePreprocessor:
 
-    def __init__(self, model_dir="../models"):
-        self.model_dir = model_dir
+    def __init__(self, model_dir=None):
+        # Resolve path dynamically to prevent relative directory errors
+        if model_dir is None:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            self.model_dir = os.path.abspath(os.path.join(base_dir, "../models"))
+        else:
+            self.model_dir = os.path.abspath(model_dir)
+            
         self.load_encoders()
     
     def load_encoders(self):
@@ -25,10 +31,13 @@ class CarPricePreprocessor:
             self.ordinal_features = self.feature_mapping['ordinal_features']
             self.ohe_cols = self.feature_mapping['ohe_cols']
             
+            # --- CRITICAL FIX: Extract training statistical values ---
+            # If your training pipeline didn't save these constants, add them to your training script!
+            self.global_odometer_median = self.feature_mapping.get('global_odometer_median', 60000)
+            self.global_condition_median = self.feature_mapping.get('global_condition_median', 3.5)
+            self.yearly_medians = self.feature_mapping.get('yearly_medians', {}) # Map: {year: {odometer: X, condition: Y}}
+            
             print("✅ Encoders loaded successfully")
-            print(f"   - Numerical: {len(self.numerical_features)} features")
-            print(f"   - One-hot: {len(self.ohe_features)} features → {len(self.ohe_cols)} columns")
-            print(f"   - Ordinal: {len(self.ordinal_features)} features")
             
         except FileNotFoundError as e:
             print(f"❌ Error loading encoders: {e}")
@@ -37,86 +46,77 @@ class CarPricePreprocessor:
     
     def preprocess(self, df_raw):
         """
-        Apply EXACT same preprocessing as training pipeline
-        
-        Parameters:
-        -----------
-        df_raw : pd.DataFrame
-            Raw data with columns: year, make, model, trim, body, transmission,
-            state, condition, odometer, color, interior, saledate
-            
-        Returns:
-        --------
-        pd.DataFrame
-            Processed data ready for model prediction
+        Apply EXACT same preprocessing as training pipeline safely for API serving
         """
         df = df_raw.copy()
         
         # ============================================
-        # PHASE 1: CLEANING & IMPUTATION (IDENTICAL TO TRAINING)
+        # PHASE 1: CLEANING & IMPUTATION
         # ============================================
-        # Note: We DON'T drop rows missing sellingprice (not present in prediction)
-        # Only drop if saledate is missing critically
-        df = df.dropna(subset=['saledate'])
+        # Fallback for completely missing saledate to prevent row drops throwing errors
+        if 'saledate' not in df.columns or df['saledate'].isnull().all():
+            df['saledate'] = df.get('saledate', pd.Series(dtype=str)).fillna(pd.Timestamp.now().strftime('%a %b %d %Y %H:%M:%S'))
+        else:
+            df['saledate'] = df['saledate'].fillna(pd.Timestamp.now().strftime('%a %b %d %Y %H:%M:%S'))
+
+        # Safe Imputation using pre-calculated training medians
+        for idx, row in df.iterrows():
+            year = row['year']
+            
+            # Impute odometer
+            if pd.isna(row['odometer']):
+                df.at[idx, 'odometer'] = self.yearly_medians.get(year, {}).get('odometer', self.global_odometer_median)
+                
+            # Impute condition
+            if pd.isna(row['condition']):
+                df.at[idx, 'condition'] = self.yearly_medians.get(year, {}).get('condition', self.global_condition_median)
         
-        # Impute odometer with median by year (same logic as training)
-        df['odometer'] = df.groupby('year')['odometer'].transform(
-            lambda x: x.fillna(x.median())
-        )
-        # Fill remaining with global median
-        df['odometer'] = df['odometer'].fillna(df['odometer'].median())
+        # Fill remaining structural NaNs
+        df['odometer'] = df['odometer'].fillna(self.global_odometer_median)
+        df['condition'] = df['condition'].fillna(self.global_condition_median)
         
-        # Impute condition with median by year
-        df['condition'] = df.groupby('year')['condition'].transform(
-            lambda x: x.fillna(x.median())
-        )
-        df['condition'] = df['condition'].fillna(df['condition'].median())
-        
-        # Fill categorical missing (same as training)
+        # Fill categorical missing
         cat_cols = ['make', 'model', 'trim', 'body', 'transmission', 'state', 'color', 'interior']
         for col in cat_cols:
-            df[col] = df[col].fillna('Unknown').astype(str).str.lower().str.strip()
+            if col in df.columns:
+                df[col] = df[col].fillna('Unknown').astype(str).str.lower().str.strip()
+            else:
+                df[col] = 'Unknown'
         
         # ============================================
-        # PHASE 2: FEATURE ENGINEERING (IDENTICAL TO TRAINING)
+        # PHASE 2: FEATURE ENGINEERING
         # ============================================
-        # Parse saledate
-        df['saledate_clean'] = df['saledate'].str.split(' GMT').str[0]
+        df['saledate_clean'] = df['saledate'].astype(str).str.split(' GMT').str[0]
         df['saledate_clean'] = pd.to_datetime(
             df['saledate_clean'], 
             format='%a %b %d %Y %H:%M:%S', 
             errors='coerce'
         )
         
-        # Extract temporal features
         df['sale_year'] = df['saledate_clean'].dt.year
         df['sale_month'] = df['saledate_clean'].dt.month
         df['sale_day_of_week'] = df['saledate_clean'].dt.dayofweek
         
-        # Fill NA in temporal features with mode (if any)
-        for col in ['sale_year', 'sale_month', 'sale_day_of_week']:
-            if df[col].isnull().any():
-                mode_val = df[col].mode()
-                if not mode_val.empty:
-                    df[col] = df[col].fillna(mode_val[0])
-                else:
-                    df[col] = df[col].fillna(0)  # fallback
+        # Fill NA in temporal features using standard fallbacks
+        df['sale_year'] = df['sale_year'].fillna(pd.Timestamp.now().year)
+        df['sale_month'] = df['sale_month'].fillna(pd.Timestamp.now().month)
+        df['sale_day_of_week'] = df['sale_day_of_week'].fillna(0)
         
         # ============================================
-        # PHASE 3: SELECT FEATURES (SAME ORDER AS TRAINING)
+        # PHASE 3: SELECT FEATURES
         # ============================================
         proc = df[self.numerical_features + self.ohe_features + self.ordinal_features].copy()
         
         # ============================================
-        # PHASE 4: APPLY TRANSFORMATIONS (NO FIT, ONLY TRANSFORM)
+        # PHASE 4: APPLY TRANSFORMATIONS
         # ============================================
-        # Scale numerical features
         numerical_scaled = self.scaler.transform(proc[self.numerical_features])
         
-        # One-hot encode (handle unknown categories automatically)
+        # CRITICAL FIX: Convert sparse matrix format to dense numpy matrix safely
         ohe_transformed = self.ohe.transform(proc[self.ohe_features])
-        
-        # Ordinal encode (handle unknown with -1)
+        if hasattr(ohe_transformed, "toarray"):
+            ohe_transformed = ohe_transformed.toarray()
+            
         ordinal_transformed = self.ordinal_enc.transform(proc[self.ordinal_features])
         
         # ============================================
@@ -124,7 +124,8 @@ class CarPricePreprocessor:
         # ============================================
         result_df = pd.DataFrame(
             np.hstack([numerical_scaled, ohe_transformed, ordinal_transformed]),
-            columns=self.numerical_features + self.ohe_cols + self.ordinal_features
+            columns=self.numerical_features + list(self.ohe_cols) + self.ordinal_features,
+            index=df.index
         )
         
         return result_df[self.feature_columns]

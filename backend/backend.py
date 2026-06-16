@@ -1,3 +1,4 @@
+import io
 import os
 import sys
 import joblib
@@ -13,16 +14,21 @@ from schemas.Raw_sample_schema import RawSampleSchema
 from pipeline.preprocessor import CarPricePreprocessor
 
 # ---------- CONFIGURATION ----------
+# Anchor directories strictly using absolute paths to support spaces and execution safety
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, "../models/best_model.joblib")
+MODELS_DIR = os.path.abspath(os.path.join(BASE_DIR, "../models"))
+MODEL_PATH = os.path.join(MODELS_DIR, "best_model.joblib")
 
 # ---------- LOAD MODEL & PREPROCESSOR ----------
 print(" Loading model...")
+if not os.path.exists(MODEL_PATH):
+    raise FileNotFoundError(f"Critical Error: Model file not found at {MODEL_PATH}")
 model = joblib.load(MODEL_PATH)
 print(" Model loaded")
 
 print(" Loading preprocessor...")
-preprocessor = CarPricePreprocessor(model_dir="../models")
+# Pass the explicit, absolute folder path to override flawed defaults
+preprocessor = CarPricePreprocessor(model_dir=MODELS_DIR)
 print(" Preprocessor ready")
 
 # ---------- FASTAPI APP ----------
@@ -44,7 +50,10 @@ def health_check():
 def predict_single(sample: RawSampleSchema):
     """Predict price for a single vehicle"""
     try:
-        df_raw = pd.DataFrame([sample.dict()])
+        # Pydantic V2 Change: replace sample.dict() with sample.model_dump()
+        df_raw = pd.DataFrame([sample.model_dump()])
+        
+        # Preprocessor now handles fallback data seamlessly without dropping the single row
         df_processed = preprocessor.preprocess(df_raw)
         prediction = model.predict(df_processed)[0]
         
@@ -66,7 +75,9 @@ async def predict_batch(file: UploadFile):
         raise HTTPException(status_code=422, detail="Only CSV files allowed")
     
     try:
-        df_raw = pd.read_csv(file.file)
+        # Asynchronously read file contents to memory so the event loop isn't blocked
+        contents = await file.read()
+        df_raw = pd.read_csv(io.BytesIO(contents))
         
         # Check required columns
         required_cols = [
@@ -80,7 +91,10 @@ async def predict_batch(file: UploadFile):
                 status_code=422, 
                 detail=f"Missing columns: {missing}"
             )
-        
+            
+        # Optional processing optimization:
+        # For huge payloads, consider using a ProcessPoolExecutor limited to 
+        # a maximum of 6 workers to maintain system stability.
         df_processed = preprocessor.preprocess(df_raw)
         predictions = model.predict(df_processed)
         
@@ -98,7 +112,10 @@ async def predict_batch(file: UploadFile):
         )
 
 if __name__ == "__main__":
-    print("\n Starting Car Price Predictor API")
-    print(" http://0.0.0.0:8000")
-    print(" Docs: http://0.0.0.0:8000/docs")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    TARGET_PORT = 8011
+    print("\n🚀 Starting Car Price Predictor API")
+    print(f"   API URL:  http://0.0.0.0:{TARGET_PORT}")
+    print(f"   Swagger:  http://0.0.0.0:{TARGET_PORT}/docs")
+    print("--------------------------------------------------\n")
+    
+    uvicorn.run("backend:app", host="0.0.0.0", port=TARGET_PORT, reload=True)
