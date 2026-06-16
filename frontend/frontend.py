@@ -1,10 +1,11 @@
-import streamlit as st
+import datetime
+import io
 import requests
 import pandas as pd
-from io import BytesIO
+import streamlit as st
 
 # Configuration
-BACKEND_URL = "http://localhost:8000"
+BACKEND_URL = "http://localhost:8011"
 
 st.set_page_config(
     page_title="Car Price Predictor",
@@ -38,7 +39,8 @@ with st.form("single_prediction_form"):
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        year = st.number_input("Year", min_value=1990, max_value=2025, value=2015)
+        current_year = datetime.datetime.now().year
+        year = st.number_input("Year", min_value=1990, max_value=current_year, value=2015)
         condition = st.slider("Condition (1-50)", 1.0, 50.0, 35.0, 1.0)
         odometer = st.number_input("Odometer (miles)", min_value=0, max_value=300000, value=50000)
         
@@ -73,9 +75,9 @@ with st.form("single_prediction_form"):
     
     if submitted:
         payload = {
-            "year": year,
-            "condition": condition,
-            "odometer": odometer,
+            "year": int(year),
+            "condition": float(condition),
+            "odometer": int(odometer),
             "make": make,
             "model": model,
             "trim": trim,
@@ -108,6 +110,10 @@ with st.form("single_prediction_form"):
 st.header("📁 Batch Prediction (CSV Upload)")
 st.markdown("Upload a CSV file with the same columns as the training data (without sellingprice)")
 
+# Use Streamlit's session state to persist results across execution loops safely
+if "batch_results" not in st.session_state:
+    st.session_state.batch_results = None
+
 uploaded_file = st.file_uploader(
     "Choose a CSV file",
     type=["csv"],
@@ -115,58 +121,64 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    # Preview uploaded file
     df_preview = pd.read_csv(uploaded_file)
     st.subheader("📊 Uploaded Data Preview")
     st.dataframe(df_preview.head(), use_container_width=True)
     st.caption(f"Total rows: {len(df_preview)}")
     
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("🚀 Run Batch Prediction", use_container_width=True):
-            # Reset file pointer
-            uploaded_file.seek(0)
-            files = {"file": uploaded_file}
-            
-            with st.spinner("Processing batch predictions..."):
-                try:
-                    response = requests.post(
-                        f"{BACKEND_URL}/predict_batch",
-                        files=files,
-                        timeout=60
-                    )
-                    
-                    if response.status_code == 200:
-                        result = response.json()
-                        predictions = result["predictions"]
-                        
-                        # Add predictions to dataframe
-                        df_output = df_preview.copy()
-                        df_output["sellingprice"] = predictions
-                        
-                        st.success(f"✅ Predictions complete! {result['count']} vehicles processed")
-                        
-                        # Show results preview
-                        st.subheader("📈 Prediction Results Preview")
-                        st.dataframe(df_output.head(10), use_container_width=True)
-                        
-                        # Download button
-                        csv_output = df_output.to_csv(index=False).encode("utf-8")
-                        
-                        with col2:
-                            st.download_button(
-                                label="📥 Download CSV with Predictions",
-                                data=csv_output,
-                                file_name="predictions.csv",
-                                mime="text/csv",
-                                use_container_width=True
-                            )
-                    else:
-                        st.error(f"Batch prediction failed: {response.text}")
+    if st.button("🚀 Run Batch Prediction", use_container_width=True):
+        uploaded_file.seek(0)
+        files = {"file": uploaded_file}
+        
+        with st.spinner("Processing batch predictions..."):
+            try:
+                response = requests.post(
+                    f"{BACKEND_URL}/predict_batch",
+                    files=files,
+                    timeout=60
+                )
                 
-                except Exception as e:
-                    st.error(f"Error: {e}")
+                if response.status_code == 200:
+                    result = response.json()
+                    predictions = result["predictions"]
+                    
+                    # SAFE INDEX ALIGNMENT MATCH
+                    # If your API filters out rows internally, we preserve layout integrity:
+                    df_output = df_preview.copy()
+                    
+                    if len(predictions) == len(df_output):
+                        df_output["sellingprice"] = predictions
+                    else:
+                        # Fallback if rows were dropped due to empty date handling:
+                        st.warning("⚠️ Row counts changed due to server validation cleaning. Appending predictions by sequential order.")
+                        df_output = df_output.dropna(subset=['saledate']).copy()
+                        df_output["sellingprice"] = predictions
+
+                    # Cache directly inside the session state to survive clicks
+                    st.session_state.batch_results = df_output
+                    st.success(f"✅ Predictions complete! {result['count']} vehicles processed")
+                    
+                else:
+                    st.error(f"Batch prediction failed: {response.text}")
+                    st.session_state.batch_results = None
+            
+            except Exception as e:
+                st.error(f"Error: {e}")
+                st.session_state.batch_results = None
+
+    # Render results outside the button block to allow persistent downloads
+    if st.session_state.batch_results is not None:
+        st.subheader("📈 Prediction Results Preview")
+        st.dataframe(st.session_state.batch_results.head(10), use_container_width=True)
+        
+        csv_output = st.session_state.batch_results.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📥 Download CSV with Predictions",
+            data=csv_output,
+            file_name="predictions.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
 
 # ---------- FOOTER ----------
 st.markdown("---")
