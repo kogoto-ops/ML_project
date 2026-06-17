@@ -1,21 +1,24 @@
 services:
-
   backend:
     build:
       context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: backend/Dockerfile.backend
     container_name: backend
     ports:
       - "8011:8011"
+    volumes:
+      - ./models:/models
     restart: unless-stopped
 
   frontend:
     build:
       context: .
-      dockerfile: frontend/Dockerfile
+      dockerfile: frontend/Dockerfile.frontend
     container_name: frontend
     ports:
       - "8501:8501"
+    # 👇 FORCE STREAMLIT TO BYPASS CORS/XSRF CHECKS FOR HOSTED ASSETS
+    command: ["streamlit", "run", "frontend/frontend.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.enableCORS=false", "--server.enableXsrfProtection=false"]
     environment:
       - BACKEND_URL=http://backend:8011
     depends_on:

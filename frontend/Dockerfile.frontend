@@ -7,7 +7,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the frontend script
-COPY frontend.py .
+COPY ../frontend/frontend.py .
 
 # Expose Streamlit's default networking port
 EXPOSE 8501
