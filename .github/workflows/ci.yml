@@ -19,13 +19,13 @@ jobs:
       - name: Build backend image
         run: |
           docker build \
-            --file backend/Dockerfile \
+            --file backend/Dockerfile.backend \
             --tag car-price-backend:latest \
             .
 
       - name: Build frontend image
         run: |
           docker build \
-            --file frontend/Dockerfile \
+            --file frontend/Dockerfile.frontend \
             --tag car-price-frontend:latest \
             .
