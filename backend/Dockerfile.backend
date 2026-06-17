@@ -2,23 +2,21 @@ FROM python:3.12-slim
 
 WORKDIR /ML_project
 
-# Install system dependencies if required for scikit-learn/numpy compilation
+# Install system dependencies needed to compile python packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    gcc \
+    g++ \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements from the local folder context
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend source architecture code
-COPY backend.py .
-COPY __init__.py .
-COPY schemas/ ./schemas/
-COPY pipeline/ ./pipeline/
+COPY ../backend/backend.py .
+COPY ../backend/__init__.py .
+COPY ../backend/schemas/ ./schemas/
+COPY ../backend/pipeline/ ./pipeline/
 
-# Expose the internal container application port
 EXPOSE 8011
-
-# Run the backend execution layer
 CMD ["python", "backend.py"]

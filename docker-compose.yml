@@ -1,18 +1,20 @@
 services:
-
   backend:
     build:
       context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: backend/Dockerfile.backend
     container_name: backend
     ports:
       - "8011:8011"
+    # 👇 ADD THIS VOLUMES SECTION TO SHARE YOUR MODEL FOLDER
+    volumes:
+      - ./models:/models
     restart: unless-stopped
 
   frontend:
     build:
       context: .
-      dockerfile: frontend/Dockerfile
+      dockerfile: frontend/Dockerfile.frontend
     container_name: frontend
     ports:
       - "8501:8501"
