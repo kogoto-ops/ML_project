@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   backend:
     build:
@@ -6,6 +8,7 @@ services:
     container_name: backend
     ports:
       - "8011:8011"
+    # 👇 ADD THIS VOLUMES SECTION TO SHARE YOUR MODEL FOLDER
     volumes:
       - ./models:/models
     restart: unless-stopped
@@ -17,8 +20,6 @@ services:
     container_name: frontend
     ports:
       - "8501:8501"
-    # 👇 FORCE STREAMLIT TO BYPASS CORS/XSRF CHECKS FOR HOSTED ASSETS
-    command: ["streamlit", "run", "frontend/frontend.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.enableCORS=false", "--server.enableXsrfProtection=false"]
     environment:
       - BACKEND_URL=http://backend:8011
     depends_on:
